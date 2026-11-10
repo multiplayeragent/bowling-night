@@ -194,7 +194,8 @@ function livePlayers() {
   }
   return out.sort();
 }
-const isHost = () => livePlayers()[0] === net.sessionId;
+let hostHold = 0, lastTick = performance.now(); // lastTick: when frame() last ran; hostHold: after a freeze, no hosting before this time (see frame())
+const isHost = () => performance.now() > hostHold && performance.now() - lastTick < 1000 && livePlayers()[0] === net.sessionId; // a tab whose loop has stopped doesn't host
 /** Still in the room and heard from within the seat grace time (a backgrounded phone keeps its seat). */
 const stillHere = (id) => id === net.sessionId || (!!S.entities.players[id] && performance.now() - (seenHb.get(id)?.at ?? -1e9) < CONFIG.seatGraceMs);
 
@@ -775,6 +776,8 @@ addEventListener("resize", fit); addEventListener("orientationchange", fit); fit
 let last = performance.now(), lastHb = 0, lastHud = 0, waitX = 0, gameId = -1;
 function frame(now) {
   requestAnimationFrame(frame);
+  if (performance.now() - lastTick > 1000) hostHold = performance.now() + 700; // the tab was frozen or in the background: let what the stand-in host wrote meanwhile arrive before acting as host
+  lastTick = performance.now(); // not the rAF time: after a long freeze Chrome can stamp the first frame from before it ended
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be timed before load: never negative
   if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
   if (isHost()) hostTick();
