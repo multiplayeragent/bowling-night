@@ -774,6 +774,7 @@ addEventListener("resize", fit); addEventListener("orientationchange", fit); fit
 
 let last = performance.now(), lastHb = 0, lastHud = 0, waitX = 0, gameId = -1;
 function frame(now) {
+  requestAnimationFrame(frame);
   const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be timed before load: never negative
   if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
   if (isHost()) hostTick();
@@ -827,7 +828,6 @@ function frame(now) {
   cam.pos.lerp(wantPos, k); cam.look.lerp(wantLook, k);
   camera.position.copy(cam.pos); camera.lookAt(cam.look);
   renderer.render(scene, camera);
-  requestAnimationFrame(frame);
 }
 
 (async function start() {
