@@ -1,0 +1,21 @@
+{
+  "name": "Bowling Night",
+  "genre": "sports",
+  "dim": "3D",
+  "mode": "Turn-based",
+  "players": "2–6",
+  "hook": "Curve it into the pocket. Everyone watches the pins fly.",
+  "how": "Take turns bowling ten frames on one lane with real strikes, spares and a three-ball tenth. Line the ball up, swipe it down the lane and curve your swipe to hook it.",
+  "controls": "Drag sideways to line up, swipe up to roll, curve the swipe for spin (mouse or finger)",
+  "uses": [
+    ["Leaderboard", "Each player's highest game, shown on the results card."],
+    ["Host-run rules", "The host's browser checks each roll, counts the pins and keeps the score sheet; if it leaves, the next player takes over."],
+    ["Bots", "Bots bowl in the empty seats, and take over for anyone who leaves."],
+    ["Live sync", "Every roll plays out for everyone at once, pin for pin."]
+  ],
+  "ideas": [
+    "Add bumpers in the gutters for beginners",
+    "Make it cosmic bowling with glowing pins and a disco ball",
+    "Add a bonus round where the pins are arranged in a line"
+  ]
+}

@@ -1,0 +1,849 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bowling Night</title>
+<style>
+  html, body { margin: 0; height: 100%; overflow: hidden; overscroll-behavior: none; background: #120a26; }
+  body { font: 15px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; color: #fff; user-select: none; -webkit-user-select: none; }
+  canvas { display: block; touch-action: none; }
+  .hud { position: fixed; pointer-events: none; text-shadow: 0 2px 4px #0009; font-weight: 800; }
+  #sheet { top: max(8px, env(safe-area-inset-top)); left: 50%; transform: translateX(-50%); width: min(560px, calc(100vw - 16px)); }
+  #sheet table, .card table { width: 100%; border-collapse: collapse; table-layout: fixed; font-variant-numeric: tabular-nums; text-shadow: none; }
+  #sheet table { background: #1b1240d9; border-radius: 10px; overflow: hidden; font-size: clamp(10px, 2.7vw, 13px); }
+  #sheet td, .card td { border-left: 1px solid #ffffff1c; text-align: center; padding: 1px 0; line-height: 1.15; }
+  #sheet td.nm, .card td.nm { text-align: left; padding-left: 6px; width: 22%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; border-left: 0; }
+  #sheet tr.me td.nm { color: #7dffe0; }
+  #sheet td.tot, .card td.tot { width: 10%; font-weight: 900; color: #ffd84d; }
+  td b { display: block; font-size: .85em; color: #c9b8ff; font-weight: 700; min-height: 1.1em; letter-spacing: 1px; }
+  td.now { background: #ff4fd833; }
+  tr.up td.nm { color: #ffd84d; }
+  td i { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  #pins { top: calc(max(8px, env(safe-area-inset-top)) + var(--sheet, 70px)); right: max(12px, env(safe-area-inset-right)); display: grid; gap: 3px; justify-items: center; }
+  #pins div { display: flex; gap: 4px; } #pins span { width: 11px; height: 11px; border-radius: 50%; background: #fff; box-shadow: 0 0 6px #fff8; }
+  #pins span.down { background: #ffffff26; box-shadow: none; }
+  #turn { top: calc(max(8px, env(safe-area-inset-top)) + var(--sheet, 70px)); left: max(14px, env(safe-area-inset-left)); font-size: 20px; line-height: 1.15; }
+  #turn small { display: block; font-size: 14px; font-weight: 700; opacity: .9; }
+  #turn.mine { color: #7dffe0; }
+  #net { bottom: max(10px, env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); font-size: 12px; font-weight: 600; opacity: .85; white-space: nowrap; }
+  #hint { bottom: calc(max(10px, env(safe-area-inset-bottom)) + 26px); left: 0; right: 0; text-align: center; font-size: 17px; padding: 0 16px; }
+  #msg { top: 30%; left: 0; right: 0; text-align: center; font-size: 56px; color: #ff4fd8; -webkit-text-stroke: 2px #2a0040; transition: opacity .3s, transform .3s; opacity: 0; transform: scale(.7); letter-spacing: 2px; }
+  #msg.on { opacity: 1; transform: scale(1); } #msg.small { font-size: 34px; color: #ffd84d; }
+  #over { position: fixed; inset: 0; display: grid; place-items: center; background: #0a051866; }
+  #over[hidden] { display: none; }
+  .card { width: min(560px, 94vw); max-height: 88vh; overflow: auto; padding: 16px; border-radius: 16px; background: #1b1240f2; border: 1px solid #ffffff2a; box-sizing: border-box; }
+  .card h2 { margin: 0 0 10px; font-size: 24px; }
+  .card h3 { margin: 14px 0 4px; font-size: 14px; color: #ff9cf0; }
+  .card table { font-size: clamp(10px, 2.6vw, 13px); }
+  .card tr.me td.nm { color: #ffd84d; }
+  .card ol { margin: 0; padding-left: 24px; font-size: 14px; } .card li span { float: right; }
+  .card p { margin: 12px 0 0; font-size: 13px; opacity: .8; }
+  button.go { width: 100%; min-height: 48px; margin-top: 14px; border: 0; border-radius: 12px; background: #ff4fd8; color: #2a0030; font: 800 17px system-ui, sans-serif; cursor: pointer; }
+</style>
+<script src="https://cdn.multiplayeragent.com/sdk/mp.global.js"></script>
+<script type="importmap">{ "imports": { "three": "./libs/three.module.min.js" } }</script>
+</head>
+<body>
+<div class="hud" id="sheet"></div>
+<div class="hud" id="turn"></div>
+<div class="hud" id="pins"></div>
+<div class="hud" id="hint"></div>
+<div class="hud" id="msg"></div>
+<div class="hud" id="net">Connecting…</div>
+<div id="over" hidden><div class="card">
+  <h2 id="overTitle">Final scores</h2>
+  <div id="final"></div>
+  <h3>Highest games</h3><ol id="board"><li>Loading…</li></ol>
+  <p id="next"></p>
+  <button class="go" id="again">Play again</button>
+</div></div>
+<script type="module">
+/* ═══ BOWLING NIGHT · a Multiplayer Agent starter ═════════════════════════════════════════
+ * Ten frames on one lane, real scoring. Turn-based, 2–6 players; everyone watches each roll
+ * live; bots take the empty seats.
+ *
+ * WHERE THINGS ARE (search for the "── " headers):
+ *   CONFIG ........ seats, timings, lane size, ball and pin physics, swipe feel, bots
+ *   CONNECTION .... MP_CONNECT, joining, the offline room, who is host
+ *   SCORING ....... strikes, spares, the tenth frame, whose turn it is
+ *   PHYSICS ....... one roll from start to finish: the ball's hook, pins hitting pins
+ *   LANE .......... renderer, lights, the lane, gutters, neighbouring lanes, neon
+ *   PINS & BALL ... the pin and ball models, drawing a roll, sweeping the deck
+ *   GAME (HOST) ... seats, checking and starting rolls, scoring them, bot turns, results.
+ *                   Only the host writes the shared `game` field.
+ *   MY TURN ....... lining up, the swipe, sending a roll
+ *   HUD & RESULTS . score sheet, pin diagram, turn banner, results card, leaderboard
+ *   INPUT / LOOP .. pointer and keys, the camera, the main loop
+ *
+ * HOW THE MULTIPLAYER WORKS (a relay room: no server code):
+ *   - The whole game lives in ONE shared field, `game`: {id, v, phase, seats, pins, roll,
+ *     rollN, turnAt, bx, endsAt}. `seats` holds each bowler's id, name, color and rolls.
+ *     Only the HOST writes it, and `v` goes up on every write.
+ *   - The HOST is the lowest sessionId among live players (heartbeat seen in the last 3s),
+ *     worked out every frame. A new host carries on from `game`.
+ *   - The bowler sends the intent "roll" {g, n, x, vx, vz, sp} (where the ball starts, its
+ *     velocity and spin). The host checks it is that seat's turn, simulates the roll to the
+ *     end to know the pinfall, and writes `game.roll` with the launch. Every client replays
+ *     the launch with the same fixed-step physics, so everyone watches the same roll live.
+ *     When the pins have settled the host adds the pinfall to the seat's rolls and moves on.
+ *   - Each player writes its OWN entity: `n`/`c` (name, color), `hb` (heartbeat) and, on its
+ *     turn, `l` (where it is lining the ball up) so the others see the ball slide.
+ *   - A seat whose player is gone for 10s goes to a bot (it keeps the score); someone who
+ *     joins takes a bot's seat, or a new seat in the first two frames, or watches.
+ *   - Intent "again" {} from the results card asks the host to start a new game now.
+ *   - ?attract plays offline with bots only (the preview video is recorded from it).
+ *   - Leaderboard "high-game": each player's best game, shown on the results card.
+ */
+import * as THREE from "three";
+
+// ── CONFIG ──────────────────────────────────────────────────────────────────────────
+const CONFIG = {
+  seats: 3,              // bots fill the bowling order up to this many
+  maxSeats: 6,           // the most bowlers in one game
+  botThinkMs: 1400,      // a bot lines up this long before it rolls
+  settleMs: 1100,        // ms the pins stay down after they stop, before the sweep
+  turnMs: 30000,         // a player who doesn't roll in this long gets a roll made for them
+  seatGraceMs: 10000,    // a seated player silent this long loses the seat to a bot
+  resultsMs: 30000,      // results show this long, then a new game starts (Play again starts it at once)
+  board: "high-game",
+  // The lane, in metres. The foul line is z = 0; the ball rolls toward -z.
+  laneHalf: 0.527,       // half the lane's width (the gutters start here)
+  gutterX: 0.64,         // where a ball in the gutter runs
+  wallX: 0.8,            // the side walls around the pins
+  headZ: -18.29,         // the head pin
+  pinSpacing: 0.3048, rowDepth: 0.264,
+  deckZ: -17.7,          // the pin deck starts here (a ball can't drop into the gutter past it)
+  pitZ: -19.4,           // past this, balls and pins fall into the pit
+  // Ball and pins
+  ballR: 0.108, ballM: 7,
+  pinR: 0.06, pinDownR: 0.065, pinM: 1.5, // a fallen pin is longer, so it reaches a little further
+  pinBounce: 0.4,        // how bouncy pin hits are
+  wallBounce: 0.5,
+  knock: 0.5,            // a standing pin hit faster than this (m/s) falls
+  pinSlide: 2.5,         // how fast a fallen pin slows down, m/s²
+  ballSlow: 0.12,        // how fast the ball slows down, m/s²
+  hookAcc: 0.9,          // sideways pull of full spin on the dry end of the lane, m/s²
+  oilEnd: -8,            // the oil ends here: the ball starts to hook...
+  hookRamp: 4,           // ...and hooks fully this many metres later
+  // The swipe
+  speedMin: 6, speedMax: 10,     // m/s for a slow swipe and a fast flick
+  swipeSlow: 0.5, swipeFast: 2.6, // swipe speed in screen heights per second for those
+  aimScale: 0.15,        // lane angle per radian of swipe angle
+  aimMax: 0.05,          // the widest angle, radians
+  spinFromBow: 4,        // how much a curved swipe spins the ball
+  // Bots
+  botNames: ["Lucky Strike", "Gutter Gus", "Spare Ribs", "Pin Pal", "Split Kit", "Lane Jane"],
+  botAimErr: 0.12,       // how far a bot misses its target at the pins, metres
+  botSpeedErr: 0.35,     // m/s
+};
+const COLORS = ["#ff4fd8", "#4de1ff", "#ffd84d", "#7dff7a", "#b28bff", "#ff8c42", "#ff5a6e", "#f5f5f5"];
+
+// ── CONNECTION ──────────────────────────────────────────────────────────────────────
+// The builder fills these in for this game. Downloaded from GitHub? Put your own pk_ key here.
+const MP_CONNECT = {
+  key: 'pk_REPLACE_ME',
+  room: 'bowling-night',
+  endpoint: 'wss://live.multiplayeragent.com',
+  apiUrl: 'https://api.multiplayeragent.com',
+};
+const ATTRACT = new URLSearchParams(location.search).has("attract");
+
+/** Same shape as the SDK client, kept in this tab: offline play and ?attract. */
+function localRoom() {
+  const id = "local", state = { entities: { players: { [id]: {} } }, shared: {} }, subs = [];
+  let queued = false;
+  const emit = () => { if (!queued) { queued = true; queueMicrotask(() => { queued = false; subs.forEach((f) => f(state)); }); } };
+  const put = (o, k, v) => { if (typeof k === "object") Object.assign(o, k); else o[k] = v; emit(); };
+  return {
+    sessionId: id, state, offline: true,
+    me: { set: (k, v) => put(state.entities.players[id], k, v) },
+    setShared: (k, v) => put(state.shared, k, v),
+    onState: (f) => { subs.push(f); f(state); }, onJoin() {}, onLeave() {}, on() {}, send() {},
+    onDisconnect() {}, onReconnect() {}, leave: async () => {},
+  };
+}
+async function connect() {
+  if (ATTRACT || typeof MP === "undefined") return localRoom();
+  try {
+    const mp = await Promise.race([MP.join({ ...MP_CONNECT }), new Promise((_, no) => setTimeout(() => no(new Error("timed out")), 10000))]);
+    window.mp = mp; // the builder calls window.mp.leave() when the page closes
+    return mp;
+  } catch (e) {
+    console.warn("Playing offline:", e && e.message);
+    return localRoom();
+  }
+}
+/** JSON from a state field, parsed once per distinct value (read-only: never mutate the result). */
+const jsonCache = new Map();
+function parse(v, fb) {
+  if (typeof v !== "string") return fb;
+  if (jsonCache.has(v)) return jsonCache.get(v);
+  let out = fb; try { out = JSON.parse(v); } catch {}
+  if (jsonCache.size > 200) jsonCache.clear();
+  jsonCache.set(v, out); return out;
+}
+let net = null, S = { entities: { players: {} }, shared: {} };
+const seenHb = new Map();
+function livePlayers() {
+  const now = performance.now(), out = [];
+  for (const [id, p] of Object.entries(S.entities.players || {})) {
+    const s = seenHb.get(id);
+    if (!s || s.hb !== p.hb) seenHb.set(id, { hb: p.hb, at: now });
+    if (id === net.sessionId || now - seenHb.get(id).at < 3000) out.push(id);
+  }
+  return out.sort();
+}
+const isHost = () => livePlayers()[0] === net.sessionId;
+/** Still in the room and heard from within the seat grace time (a backgrounded phone keeps its seat). */
+const stillHere = (id) => id === net.sessionId || (!!S.entities.players[id] && performance.now() - (seenHb.get(id)?.at ?? -1e9) < CONFIG.seatGraceMs);
+
+// ── SCORING ─────────────────────────────────────────────────────────────────────────
+// A bowler's game is a flat list of pinfalls, one per ball: [10, 7, 3, 9, 0, ...].
+const ALL_PINS = 1023; // one bit per pin; pin 1 (the head pin) is bit 0
+const mark = (n) => (n === 0 ? "-" : String(n));
+/** The score sheet: each frame's marks ("X", "7/", "9-") and running total (null until it can be counted). */
+function scoreSheet(r) {
+  const frames = []; let i = 0, total = 0, ok = true;
+  for (let f = 0; f < 10; f++) {
+    const a = r[i], b = r[i + 1], c = r[i + 2];
+    let marks = "", done = false, pts = 0;
+    if (a === undefined) { frames.push({ marks, total: null }); continue; }
+    if (f < 9) {
+      if (a === 10) { marks = "X"; done = b !== undefined && c !== undefined; pts = 10 + (b || 0) + (c || 0); i += 1; }
+      else {
+        marks = mark(a) + (b === undefined ? "" : a + b === 10 ? "/" : mark(b));
+        done = b !== undefined && (a + b < 10 || c !== undefined); pts = a + (b || 0) + (a + b === 10 ? c || 0 : 0); i += 2;
+      }
+    } else { // the tenth: a strike or spare earns a third ball
+      marks = a === 10 ? "X" : mark(a);
+      if (b !== undefined) marks += a === 10 ? (b === 10 ? "X" : mark(b)) : a + b === 10 ? "/" : mark(b);
+      if (c !== undefined) marks += (a === 10 && b !== 10) ? (b + c === 10 ? "/" : mark(c)) : c === 10 ? "X" : mark(c);
+      done = b !== undefined && (a + b < 10 && a !== 10 ? true : c !== undefined); pts = a + (b || 0) + (c || 0);
+    }
+    ok = ok && done;
+    if (ok) total += pts;
+    frames.push({ marks, total: ok ? total : null });
+  }
+  return { frames, total };
+}
+/** The next ball for this bowler: its frame (0-9), whether the rack is fresh, or done. */
+function nextBall(r) {
+  let i = 0;
+  for (let f = 0; f < 9; f++) {
+    if (r[i] === undefined) return { frame: f, ball: 0, fresh: true };
+    if (r[i] === 10) { i += 1; continue; }
+    if (r[i + 1] === undefined) return { frame: f, ball: 1, fresh: false };
+    i += 2;
+  }
+  const [a, b, c] = [r[i], r[i + 1], r[i + 2]];
+  if (a === undefined) return { frame: 9, ball: 0, fresh: true };
+  if (b === undefined) return { frame: 9, ball: 1, fresh: a === 10 };
+  if (c === undefined && (a === 10 || a + b === 10)) return { frame: 9, ball: 2, fresh: b === 10 || (a !== 10 && a + b === 10) };
+  return { frame: 10, done: true };
+}
+/** Whose turn: the seat furthest behind, the first one on a tie (so a frame is finished before the next seat goes). */
+function currentSeat(g) {
+  let best = -1, bestFrame = 99;
+  g.seats.forEach((s, i) => { const nb = nextBall(s.r); if (!nb.done && nb.frame < bestFrame) { bestFrame = nb.frame; best = i; } });
+  return best;
+}
+const popcount = (m) => { let n = 0; for (; m; m &= m - 1) n++; return n; };
+
+// ── PHYSICS ─────────────────────────────────────────────────────────────────────────
+// A roll is simulated in fixed 1/240 s steps with only + - * / and sqrt, so every browser
+// replays a launch exactly the same way. The host runs it to the end at once to know the
+// pinfall; everyone else (and the host's screen) plays it out in real time.
+const STEP = 1 / 240;
+const clamp = (v, a, b) => (v < a ? a : v > b ? b : v);
+const r4 = (v) => Math.round(v * 10000) / 10000;
+/** Where pin i stands: rows of 1, 2, 3, 4 from the head pin back, left to right. */
+const PIN_SPOTS = [];
+for (let row = 0; row < 4; row++) for (let k = 0; k <= row; k++) PIN_SPOTS.push({ x: (k - row / 2) * CONFIG.pinSpacing, z: CONFIG.headZ - row * CONFIG.rowDepth });
+/** A roll ready to play: the ball at its launch, the pins of `mask` standing. */
+function newSim(mask, roll) {
+  return {
+    t: 0, acc: 0, quiet: 0, settled: false, hits: 0, gutterAt: -1,
+    ball: { x: roll.x, z: 0, vx: roll.vx, vz: roll.vz, sp: roll.sp, gutter: false, gone: false },
+    pins: PIN_SPOTS.map((p, i) => ({ i, x: p.x, z: p.z, vx: 0, vz: 0, up: (mask >> i) & 1, down: false, gone: !((mask >> i) & 1), fall: 0, fx: 0, fz: 0, pit: 0 })),
+  };
+}
+const standing = (o) => o.up && !o.down;
+/** Two circles touching: push them apart and trade momentum. A standing pin hit hard enough falls (and only then moves). */
+function hit(s, a, ra, ma, b, rb, mb) {
+  const dx = b.x - a.x, dz = b.z - a.z, d2 = dx * dx + dz * dz, rr = ra + rb;
+  if (d2 >= rr * rr || d2 < 1e-12) return;
+  const d = Math.sqrt(d2), nx = dx / d, nz = dz / d;
+  const closing = (a.vx - b.vx) * nx + (a.vz - b.vz) * nz;
+  for (const o of [a, b]) if (standing(o) && closing > CONFIG.knock) { o.down = true; o.fx = o === a ? -nx : nx; o.fz = o === a ? -nz : nz; }
+  const ia = standing(a) ? 0 : 1 / ma, ib = standing(b) ? 0 : 1 / mb;
+  if (ia + ib === 0) return;
+  const push = (rr - d) / (ia + ib);
+  a.x -= nx * push * ia; a.z -= nz * push * ia; b.x += nx * push * ib; b.z += nz * push * ib;
+  if (closing > 0) {
+    const j = ((1 + CONFIG.pinBounce) * closing) / (ia + ib);
+    a.vx -= j * ia * nx; a.vz -= j * ia * nz; b.vx += j * ib * nx; b.vz += j * ib * nz;
+    if (closing > 0.5) s.hits++;
+  }
+}
+const pinR = (p) => (p.down ? CONFIG.pinDownR : CONFIG.pinR);
+/** One fixed step of a roll. */
+function simStep(s) {
+  const C = CONFIG, b = s.ball;
+  s.t += STEP;
+  if (!b.gone) {
+    if (!b.gutter) b.vx += b.sp * C.hookAcc * clamp((C.oilEnd - b.z) / C.hookRamp, 0, 1) * STEP; // the hook, on the dry end
+    const v = Math.sqrt(b.vx * b.vx + b.vz * b.vz);
+    if (v > 0) { const k = Math.max(0, v - C.ballSlow * STEP) / v; b.vx *= k; b.vz *= k; }
+    b.x += b.vx * STEP; b.z += b.vz * STEP;
+    if (!b.gutter && b.z > C.deckZ && (b.x > C.laneHalf || b.x < -C.laneHalf)) { b.gutter = true; b.x = b.x > 0 ? C.gutterX : -C.gutterX; b.vx = 0; s.gutterAt = s.t; }
+    if (b.x > C.wallX - C.ballR) { b.x = C.wallX - C.ballR; b.vx = -b.vx * C.wallBounce; }
+    if (b.x < -C.wallX + C.ballR) { b.x = -C.wallX + C.ballR; b.vx = -b.vx * C.wallBounce; }
+    if (b.z < C.pitZ || v < 0.05) b.gone = true;
+  }
+  for (const p of s.pins) {
+    if (p.gone && p.up && p.pit < 1) { p.pit += STEP; p.x += p.vx * STEP * 0.5; p.z = Math.max(-19.8, p.z + p.vz * STEP * 0.5); } // dropping into the pit (only drawn)
+    if (!p.down || p.gone) continue;
+    p.fall = Math.min(1, p.fall + STEP * 7); // how far it has tipped over (for drawing)
+    const v = Math.sqrt(p.vx * p.vx + p.vz * p.vz);
+    if (v > 0) { const k = Math.max(0, v - C.pinSlide * STEP) / v; p.vx *= k; p.vz *= k; }
+    p.x += p.vx * STEP; p.z += p.vz * STEP;
+    const r = pinR(p);
+    if (p.x > C.wallX - r) { p.x = C.wallX - r; p.vx = -p.vx * C.wallBounce; }
+    if (p.x < -C.wallX + r) { p.x = -C.wallX + r; p.vx = -p.vx * C.wallBounce; }
+    if (p.z > C.deckZ + 0.3) { p.z = C.deckZ + 0.3; p.vz = -p.vz * C.wallBounce; }
+    if (p.z < C.pitZ) p.gone = true;
+  }
+  if (!b.gone) for (const p of s.pins) if (!p.gone) hit(s, b, C.ballR, C.ballM, p, pinR(p), C.pinM);
+  for (let i = 0; i < 10; i++) for (let j = i + 1; j < 10; j++) {
+    const p = s.pins[i], q = s.pins[j];
+    if (!p.gone && !q.gone && (p.down || q.down)) hit(s, p, pinR(p), C.pinM, q, pinR(q), C.pinM);
+  }
+  const moving = s.pins.some((p) => p.down && !p.gone && p.vx * p.vx + p.vz * p.vz > 0.0025);
+  s.quiet = b.gone && !moving ? s.quiet + STEP : 0;
+  if (s.quiet > 0.3 || s.t > 8) s.settled = true;
+}
+/** Play a roll for dt seconds of real time. */
+function simRun(s, dt) { s.acc += dt; while (s.acc >= STEP && !s.settled) { s.acc -= STEP; simStep(s); } }
+/** The pins a finished roll knocked down, as a mask. */
+const downMask = (s) => s.pins.reduce((m, p) => (p.up && p.down ? m | (1 << p.i) : m), 0);
+/** Run a whole roll at once: { dn: knocked mask, dur: seconds until the pins settled }. */
+function simulateRoll(mask, roll) { const s = newSim(mask, roll); while (!s.settled) simStep(s); return { dn: downMask(s), dur: s.t }; }
+/** A launch from x with speed, angle and spin, rounded so every client replays the same numbers. */
+function makeRoll(x, speed, angle, spin) {
+  const half = CONFIG.laneHalf - CONFIG.ballR;
+  return { x: r4(clamp(x, -half, half)), vx: r4(Math.sin(angle) * speed), vz: r4(-Math.cos(angle) * speed), sp: r4(clamp(spin, -1, 1)) };
+}
+/** Where a ball (no pins) crosses the head pin's row: what bots aim with. */
+function ballXAtPins(roll) {
+  const s = newSim(0, roll);
+  while (!s.ball.gone && s.ball.z > CONFIG.headZ) simStep(s);
+  return s.ball.gutter ? (s.ball.x > 0 ? 9 : -9) : s.ball.x;
+}
+/** The angle that sends this ball through targetX at the pins (found by halving the range). */
+function angleFor(x, speed, spin, targetX) {
+  let lo = -CONFIG.aimMax, hi = CONFIG.aimMax;
+  for (let k = 0; k < 18; k++) { const mid = (lo + hi) / 2; if (ballXAtPins(makeRoll(x, speed, mid, spin)) < targetX) lo = mid; else hi = mid; }
+  return (lo + hi) / 2;
+}
+
+// ── LANE ────────────────────────────────────────────────────────────────────────────
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(2, devicePixelRatio || 1));
+renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.prepend(renderer.domElement);
+const cv = renderer.domElement;
+const scene = new THREE.Scene();
+scene.background = new THREE.Color("#120a26");
+scene.fog = new THREE.Fog("#120a26", 22, 55);
+const camera = new THREE.PerspectiveCamera(38, 1, 0.05, 120);
+scene.add(new THREE.HemisphereLight("#b9a8ff", "#2a1450", 0.9));
+const sun = new THREE.DirectionalLight("#ffffff", 1.3);
+sun.position.set(1.5, 10, -12); sun.target.position.set(0, 0, -17); sun.castShadow = true; sun.shadow.mapSize.set(1024, 1024);
+Object.assign(sun.shadow.camera, { left: -3, right: 3, top: 4, bottom: -4, near: 1, far: 25 }); scene.add(sun, sun.target);
+const deckLight = new THREE.PointLight("#fff2e0", 6, 7, 1.6); deckLight.position.set(0, 1.6, -17.2); scene.add(deckLight);
+
+function canvasTex(w, h, paint, repeat) {
+  const c = document.createElement("canvas"); c.width = w; c.height = h; paint(c.getContext("2d"), w, h);
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; t.anisotropy = 8;
+  if (repeat) t.wrapS = t.wrapT = THREE.RepeatWrapping;
+  return t;
+}
+const LANE_LEN = 19.4, APPROACH = 4.5, PITCH = 2.3; // lane length, the approach behind the foul line, lane to lane
+// The lane's wood: 39 boards running lengthways, the target arrows and dots, the foul line
+const laneTex = canvasTex(256, 2048, (c, w, h) => {
+  const bw = w / 39, mz = h / LANE_LEN, Z = (z) => h + z * mz; // z (negative) to canvas y
+  for (let k = 0; k < 39; k++) { c.fillStyle = ["#e9c48f", "#e2b981", "#edcb98"][k % 3]; c.fillRect(k * bw, 0, bw + 1, h); c.fillStyle = "#00000014"; c.fillRect(k * bw, 0, 1, h); }
+  c.fillStyle = "#ffffff12"; c.fillRect(0, Z(-17.6), w, 0.9 * mz); // the pin deck
+  const board = (x) => w / 2 + (x / 0.0270) * bw; // metres to canvas x
+  c.fillStyle = "#c2185b";
+  for (let k = -3; k <= 3; k++) { const x = board(k * 0.135), z = Z(-4.6 + Math.abs(k) * 0.3); c.beginPath(); c.moveTo(x, z - 34); c.lineTo(x + bw * 0.9, z); c.lineTo(x - bw * 0.9, z); c.fill(); }
+  for (let k = -4; k <= 4; k++) { if (!k) continue; c.beginPath(); c.arc(board(k * 0.1), Z(-2.1), bw * 0.35, 0, 7); c.fill(); }
+  for (const p of PIN_SPOTS) { c.fillStyle = "#0000002a"; c.beginPath(); c.arc(board(p.x), Z(p.z), bw * 0.9, 0, 7); c.fill(); }
+});
+const MAT = {
+  lane: new THREE.MeshStandardMaterial({ map: laneTex, roughness: 0.42, metalness: 0.05 }),
+  gutter: new THREE.MeshStandardMaterial({ color: "#2b2440", roughness: 0.4, metalness: 0.5 }),
+  cap: new THREE.MeshStandardMaterial({ color: "#3a2f63", roughness: 0.6 }),
+  approach: new THREE.MeshStandardMaterial({ color: "#d9b37f", roughness: 0.35 }),
+  foul: new THREE.MeshBasicMaterial({ color: "#ff2e7a" }),
+  pit: new THREE.MeshBasicMaterial({ color: "#05020c" }),
+  neonA: new THREE.MeshBasicMaterial({ color: "#ff4fd8" }),
+  neonB: new THREE.MeshBasicMaterial({ color: "#4de1ff" }),
+  carpet: new THREE.MeshStandardMaterial({ roughness: 1, map: canvasTex(128, 128, (c, w, h) => {
+    c.fillStyle = "#1a0f38"; c.fillRect(0, 0, w, h);
+    const cols = ["#ff4fd8", "#4de1ff", "#ffd84d", "#7dff7a"];
+    for (let k = 0; k < 26; k++) { c.fillStyle = cols[k % 4]; c.globalAlpha = 0.5; c.beginPath(); c.arc((k * 53) % w, (k * 37 + (k % 3) * 20) % h, 2 + (k % 3), 0, 7); c.fill(); }
+  }, true) }),
+};
+MAT.carpet.map.repeat.set(10, 10);
+function box(w, h, d, mat, x, y, z, parent = scene) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat); m.position.set(x, y, z); m.receiveShadow = true; parent.add(m); return m;
+}
+/** One lane at offset x: wood, gutters, caps, the pin deck walls, the pit, the masking panel. */
+function buildLane(x) {
+  const g = new THREE.Group(); g.position.x = x; scene.add(g);
+  const C = CONFIG;
+  box(C.laneHalf * 2, 0.05, LANE_LEN, MAT.lane, 0, -0.025, -LANE_LEN / 2, g);
+  box(C.laneHalf * 2, 0.05, APPROACH, MAT.approach, 0, -0.025, APPROACH / 2, g);
+  box(C.laneHalf * 2, 0.006, 0.03, MAT.foul, 0, 0.001, 0, g);
+  for (const s of [-1, 1]) {
+    box(0.24, 0.02, LANE_LEN, MAT.gutter, s * (C.laneHalf + 0.12), -0.09, -LANE_LEN / 2, g); // gutter
+    box(0.07, 0.05, LANE_LEN + APPROACH, MAT.cap, s * (C.wallX + 0.035), 0.0, -LANE_LEN / 2 + APPROACH / 2, g); // the cap between lanes
+    box(0.012, 0.012, LANE_LEN, s < 0 ? MAT.neonA : MAT.neonB, s * (C.wallX + 0.035), 0.03, -LANE_LEN / 2, g); // neon strip
+    box(0.05, 0.55, 2.4, MAT.cap, s * (C.wallX + 0.025), 0.27, -18.6, g); // side walls at the pins
+  }
+  box(C.wallX * 2, 0.02, 1.2, MAT.pit, 0, -0.2, C.pitZ - 0.6, g);
+  const mask = new THREE.Mesh(new THREE.BoxGeometry(C.wallX * 2 + 0.2, 1.4, 0.3), new THREE.MeshStandardMaterial({ map: maskTex, emissive: "#ffffff", emissiveMap: maskTex, emissiveIntensity: 0.6 }));
+  mask.position.set(0, 1.45, -17.75); g.add(mask);
+  box(C.wallX * 2 + 0.2, 1.4, 0.05, MAT.pit, 0, 0.5, -19.9, g); // the curtain behind the pit
+  return g;
+}
+const maskTex = canvasTex(256, 192, (c, w, h) => {
+  const g = c.createLinearGradient(0, 0, 0, h); g.addColorStop(0, "#2a0f5a"); g.addColorStop(1, "#140832"); c.fillStyle = g; c.fillRect(0, 0, w, h);
+  c.fillStyle = "#ffd84d"; for (let k = 0; k < 18; k++) { c.globalAlpha = 0.4 + (k % 3) * 0.2; c.fillRect((k * 61) % w, (k * 29) % 70 + 6, 3, 3); }
+  c.globalAlpha = 1; c.textAlign = "center"; c.font = "900 38px system-ui, sans-serif";
+  c.shadowColor = "#ff4fd8"; c.shadowBlur = 14; c.fillStyle = "#ff8cf0"; c.fillText("BOWLING", w / 2, 108);
+  c.shadowColor = "#4de1ff"; c.fillStyle = "#9ff0ff"; c.fillText("NIGHT", w / 2, 150);
+});
+for (const k of [-2, -1, 0, 1, 2]) buildLane(k * PITCH);
+const floor = new THREE.Mesh(new THREE.PlaneGeometry(30, 14), MAT.carpet); floor.rotation.x = -Math.PI / 2; floor.position.set(0, -0.05, 9.4); scene.add(floor);
+const back = new THREE.Mesh(new THREE.PlaneGeometry(30, 8), new THREE.MeshBasicMaterial({ color: "#0b0619" })); back.position.set(0, 3, -20.5); scene.add(back);
+
+// ── PINS & BALL ─────────────────────────────────────────────────────────────────────
+// A pin: a lathe (white, two red stripes at the neck), its origin at the base.
+const PIN_H = 0.38;
+const pinProfile = [[0, 0], [0.026, 0], [0.04, 0.03], [0.06, 0.1], [0.06, 0.14], [0.045, 0.2], [0.024, 0.25], [0.022, 0.27], [0.03, 0.32], [0.029, 0.355], [0.016, 0.375], [0, 0.38]].map(([r, y]) => new THREE.Vector2(r, y));
+const pinTex = canvasTex(8, 128, (c, w, h) => { // the lathe's v runs along the profile points (0 at the base, 1 at the top)
+  c.fillStyle = "#fbfbf7"; c.fillRect(0, 0, w, h); c.fillStyle = "#d81b3c";
+  const Y = (v) => (1 - v) * h; c.fillRect(0, Y(0.615), w, Y(0.575) - Y(0.615)); c.fillRect(0, Y(0.55), w, Y(0.53) - Y(0.55));
+});
+const pinGeo = new THREE.LatheGeometry(pinProfile, 20);
+const pinMat = new THREE.MeshStandardMaterial({ map: pinTex, roughness: 0.25 });
+const pinMeshes = PIN_SPOTS.map(() => { const m = new THREE.Mesh(pinGeo, pinMat); m.castShadow = true; scene.add(m); return m; });
+// pins on the neighbouring lanes, just for the look
+const others = new THREE.InstancedMesh(pinGeo, pinMat, 40), mtx = new THREE.Matrix4();
+[-2, -1, 1, 2].forEach((k, n) => PIN_SPOTS.forEach((p, i) => { mtx.makeTranslation(k * PITCH + p.x, 0, p.z); others.setMatrixAt(n * 10 + i, mtx); }));
+scene.add(others);
+
+const ballTex = (color) => canvasTex(256, 128, (c, w, h) => {
+  c.fillStyle = color; c.fillRect(0, 0, w, h);
+  c.globalAlpha = 0.35; for (let k = 0; k < 9; k++) { c.strokeStyle = k % 2 ? "#ffffff" : "#000000"; c.lineWidth = 6 + (k % 3) * 4; c.beginPath(); c.moveTo(-20, k * 16); c.bezierCurveTo(w * 0.3, k * 16 + 40, w * 0.6, k * 16 - 40, w + 20, k * 16 + 10); c.stroke(); }
+  c.globalAlpha = 1; c.fillStyle = "#120a26"; for (const [x, y, r] of [[118, 40, 9], [140, 40, 9], [129, 74, 11]]) { c.beginPath(); c.arc(x, y, r, 0, 7); c.fill(); }
+});
+const ballMats = new Map();
+const ballMat = (color) => { if (!ballMats.has(color)) ballMats.set(color, new THREE.MeshStandardMaterial({ map: ballTex(color), roughness: 0.15, metalness: 0.2 })); return ballMats.get(color); };
+const ball = new THREE.Mesh(new THREE.SphereGeometry(CONFIG.ballR, 28, 18), ballMat(COLORS[0])); ball.castShadow = true; scene.add(ball);
+const aimLine = new THREE.Mesh(new THREE.PlaneGeometry(0.02, 6).rotateX(-Math.PI / 2).translate(0, 0.004, -3.1), new THREE.MeshBasicMaterial({ color: "#ffffff", transparent: true, opacity: 0.35, depthWrite: false }));
+scene.add(aimLine);
+
+// Sparks when the pins fly: a pool of small cubes, reused.
+const SPARKS = 120, sparks = new THREE.InstancedMesh(new THREE.BoxGeometry(0.025, 0.025, 0.025), new THREE.MeshBasicMaterial({ color: "#fff" }), SPARKS);
+sparks.instanceMatrix.setUsage(THREE.DynamicDrawUsage); sparks.frustumCulled = false; scene.add(sparks);
+const bits = Array.from({ length: SPARKS }, () => ({ life: 0, x: 0, y: 0, z: 0, vx: 0, vy: 0, vz: 0 }));
+for (let i = 0; i < SPARKS; i++) sparks.setColorAt(i, new THREE.Color("#fff"));
+let nextBit = 0;
+function burst(x, y, z, n, colors) {
+  for (let k = 0; k < n; k++) {
+    const b = bits[nextBit], i = nextBit; nextBit = (nextBit + 1) % SPARKS;
+    const a = Math.random() * Math.PI * 2, s = 0.5 + Math.random() * 2;
+    Object.assign(b, { life: 0.9, x, y, z, vx: Math.cos(a) * s, vy: 1 + Math.random() * 2.5, vz: Math.sin(a) * s - 0.5 });
+    sparks.setColorAt(i, new THREE.Color(colors[k % colors.length]));
+  }
+  sparks.instanceColor.needsUpdate = true;
+}
+const q0 = new THREE.Quaternion(), q1 = new THREE.Quaternion(), e0 = new THREE.Euler(), v0 = new THREE.Vector3(), s0 = new THREE.Vector3(), UP = new THREE.Vector3(0, 1, 0), axis = new THREE.Vector3();
+function tickSparks(dt) {
+  bits.forEach((b, i) => {
+    if (b.life > 0) { b.life -= dt; b.vy -= 7 * dt; b.x += b.vx * dt; b.y = Math.max(0.01, b.y + b.vy * dt); b.z += b.vz * dt; }
+    const s = b.life > 0 ? Math.min(1, b.life * 2) : 0;
+    mtx.compose(v0.set(b.x, b.y, b.z), q0.setFromEuler(e0.set(b.life * 9, b.life * 7, 0)), s0.set(s, s, s));
+    sparks.setMatrixAt(i, mtx);
+  });
+  sparks.instanceMatrix.needsUpdate = true;
+}
+
+// Sound: tiny WebAudio sounds, started by the first touch or click.
+let actx = null, rumble = null;
+function beep(freq, dur, type = "sine", vol = 0.15, slide = 0) {
+  if (!actx) return;
+  const o = actx.createOscillator(), g = actx.createGain(); o.type = type; o.frequency.value = freq;
+  if (slide) o.frequency.exponentialRampToValueAtTime(freq * slide, actx.currentTime + dur);
+  g.gain.setValueAtTime(vol, actx.currentTime); g.gain.exponentialRampToValueAtTime(0.001, actx.currentTime + dur);
+  o.connect(g).connect(actx.destination); o.start(); o.stop(actx.currentTime + dur);
+}
+/** The low rumble of a rolling ball: on while `loud` > 0. */
+function setRumble(loud) {
+  if (!actx) return;
+  if (!rumble) { const o = actx.createOscillator(), g = actx.createGain(); o.type = "triangle"; o.frequency.value = 52; g.gain.value = 0; o.connect(g).connect(actx.destination); o.start(); rumble = g; }
+  rumble.gain.setTargetAtTime(loud * 0.12, actx.currentTime, 0.08);
+}
+function crash(n) { for (let k = 0; k < Math.min(8, n); k++) setTimeout(() => beep(500 + Math.random() * 900, 0.06, "square", 0.05), k * 28); }
+
+/** The roll being shown: { sim, n, roll, mine, done, endAt } or null. */
+let replay = null;
+const view = { mask: ALL_PINS, drop: 1 }; // the standing pins shown between rolls, and how far a new rack has dropped in
+/** Start showing roll r (the launch the host wrote, or my own the moment I let go). */
+function startReplay(r, mask, mine) {
+  replay = { sim: newSim(mask, r), n: r.n ?? null, roll: r, mask, mine, shownHits: 0, toastDone: false, color: seatColor(r.s) };
+  ball.material = ballMat(replay.color);
+  if (!mine && r.at && Date.now() - r.at > 1000) simRun(replay.sim, Math.min(r.dur || 0, (Date.now() - r.at) / 1000)); // joined mid-roll: catch up
+}
+/** Draw the pins: from the roll being played, or standing as the mask says (with a sweep in between). */
+function drawPins(dt) {
+  const s = replay && replay.sim;
+  pinMeshes.forEach((m, i) => {
+    if (s) {
+      const p = s.pins[i];
+      m.visible = !!p.up && p.pit < 0.6; // gone = falling into the pit, then out of sight
+      if (!m.visible) return;
+      const tip = p.down ? p.fall * Math.PI * 0.5 : 0;
+      axis.set(p.fz, 0, -p.fx).normalize(); if (!p.down || axis.lengthSq() < 0.5) axis.set(1, 0, 0);
+      q0.setFromAxisAngle(axis, tip); q1.setFromAxisAngle(UP, p.down ? (i * 1.7 + s.t * (2 + (i % 3))) * p.fall : 0);
+      m.quaternion.copy(q1).multiply(q0);
+      m.position.set(p.x, Math.sin(tip) * 0.05 - p.pit * p.pit * 4, p.z);
+    } else {
+      const up = (view.mask >> i) & 1;
+      m.visible = !!up; m.quaternion.identity();
+      const drop = view.drop < 1 ? (1 - view.drop) * 0.8 : 0;
+      m.position.set(PIN_SPOTS[i].x, drop, PIN_SPOTS[i].z);
+    }
+  });
+  view.drop = Math.min(1, view.drop + dt * 2.5);
+}
+/** A new rack appears: the pins drop in from above. */
+function setRack(mask) { if (mask !== view.mask) { view.mask = mask; view.drop = mask === ALL_PINS ? 0 : 1; } }
+
+// ── GAME (HOST) ─────────────────────────────────────────────────────────────────────
+const host = { last: null, botAt: 0, botTurn: "", botRoll: null }; // botTurn/botRoll: the bot roll being lined up
+/** The game as state has it, or the host's own newer write that hasn't come back yet. `v` only goes up. */
+function game() {
+  const g = parse(S.shared.game, null);
+  return host.last && isHost() && (!g || host.last.v > g.v) ? host.last : g;
+}
+function writeGame(g) { g = { ...g, v: (game()?.v ?? 0) + 1 }; host.last = g; net.setShared("game", JSON.stringify(g)); return g; }
+const playerName = (id) => (id === net.sessionId ? myName : String(S.entities.players[id]?.n ?? "Player"));
+const playerColor = (id) => (id === net.sessionId ? myColor : S.entities.players[id]?.c || "#ccc");
+function seatColor(i) { const g = game(); return g && g.seats[i] ? (g.seats[i].bot ? g.seats[i].c : playerColor(g.seats[i].id)) : "#ccc"; }
+/** A bot for seat k, with a name and color nobody is using. */
+function botSeat(k, seats, rolls = []) {
+  const usedN = new Set(seats.map((s) => s.n)), usedC = new Set(seats.map((s) => (s.bot ? s.c : playerColor(s.id))));
+  return { id: "bot" + k + Math.random().toString(36).slice(2, 5), bot: 1, n: CONFIG.botNames.find((n) => !usedN.has(n)) || "Bot", c: COLORS.find((c) => !usedC.has(c)) || "#ccc", r: rolls };
+}
+function newGame(id) {
+  const seats = (ATTRACT ? [] : livePlayers()).slice(0, CONFIG.maxSeats).map((pid) => ({ id: pid, n: playerName(pid), r: [] }));
+  while (seats.length < CONFIG.seats) seats.push(botSeat(seats.length, seats));
+  return writeGame({ id, phase: "play", seats, pins: ALL_PINS, roll: null, rollN: 0, turnAt: Date.now(), bx: 0, endsAt: 0 });
+}
+/** Gone players lose their seat to a bot; a waiting player takes a bot's seat, or a new seat early on. */
+function fixSeats(g) {
+  if (ATTRACT || g.phase !== "play") return g;
+  const seats = g.seats.map((s) => ({ ...s })), waiting = livePlayers().filter((id) => !seats.some((s) => s.id === id));
+  let changed = false;
+  seats.forEach((s, k) => { if (!s.bot && !stillHere(s.id)) { Object.assign(s, botSeat(k, seats, s.r)); changed = true; } });
+  for (const s of seats) if (s.bot && waiting.length && !(g.roll && g.seats[g.roll.s] && g.seats[g.roll.s].id === s.id)) { const id = waiting.shift(); Object.assign(s, { id, bot: 0, n: playerName(id), c: undefined }); changed = true; }
+  const leader = Math.max(...seats.map((s) => nextBall(s.r).frame));
+  while (waiting.length && seats.length < CONFIG.maxSeats && leader <= 1) { const id = waiting.shift(); seats.push({ id, n: playerName(id), r: [] }); changed = true; }
+  for (const s of seats) if (!s.bot && s.n !== playerName(s.id)) { s.n = playerName(s.id); changed = true; }
+  return changed ? writeGame({ ...g, seats }) : g;
+}
+/** Check a roll and start it: simulate it to the end now, so the host knows the pinfall and when to count it. */
+function startRoll(g, seat, p) {
+  const half = CONFIG.laneHalf - CONFIG.ballR;
+  const r = { x: r4(clamp(+p.x || 0, -half, half)), vx: r4(+p.vx || 0), vz: r4(+p.vz || 0), sp: r4(clamp(+p.sp || 0, -1, 1)) };
+  const speed = Math.sqrt(r.vx * r.vx + r.vz * r.vz);
+  if (r.vz >= 0 || speed < CONFIG.speedMin - 0.01 || speed > CONFIG.speedMax + 0.01 || Math.abs(Math.atan2(r.vx, -r.vz)) > CONFIG.aimMax + 1e-3) return g; // not a roll this lane allows
+  const res = simulateRoll(g.pins, r), n = g.rollN + 1;
+  return writeGame({ ...g, rollN: n, roll: { n, s: seat, ...r, pm: g.pins, dn: res.dn, dur: Math.round(res.dur * 1000) / 1000, at: Date.now() } });
+}
+/** The roll has settled: count it, set up the next ball (same frame, or a fresh rack for the next bowler). */
+function finishRoll(g) {
+  const r = g.roll, seats = g.seats.map((s, k) => (k === r.s ? { ...s, r: [...s.r, popcount(r.dn)] } : s));
+  const before = nextBall(g.seats[r.s].r), nb = nextBall(seats[r.s].r);
+  const sameFrame = !nb.done && nb.frame === before.frame;
+  const pins = sameFrame && !nb.fresh ? r.pm & ~r.dn : ALL_PINS;
+  let out = { ...g, seats, roll: null, pins, turnAt: Date.now() };
+  if (seats.every((s) => nextBall(s.r).done)) out = { ...out, phase: "done", endsAt: Date.now() + CONFIG.resultsMs };
+  return writeGame(out);
+}
+/** A bot rolls: pick a start, a speed and a spin, aim through the pocket (or the spare), miss a little. */
+function botRoll(g, seat) {
+  const pins = g.pins, standingPins = PIN_SPOTS.filter((_, i) => (pins >> i) & 1);
+  const lefty = seat % 2 === 1, hand = lefty ? -1 : 1, fresh = pins === ALL_PINS;
+  let target, spin, x0;
+  if (fresh) { target = hand * 0.065; spin = -hand * (0.55 + (seat % 3) * 0.15); x0 = hand * 0.22; } // the pocket, hooking in
+  else {
+    const front = standingPins.reduce((a, p) => (p.z > a.z ? p : a), standingPins[0]);
+    const mid = standingPins.reduce((s, p) => s + p.x, 0) / standingPins.length;
+    target = front.x * 0.55 + mid * 0.45; spin = -hand * 0.15; x0 = -target * 0.6;
+  }
+  const speed = clamp(8.3 + (Math.random() - 0.5) * 2 * CONFIG.botSpeedErr, CONFIG.speedMin, CONFIG.speedMax);
+  const miss = (Math.random() + Math.random() + Math.random() - 1.5) * CONFIG.botAimErr * 1.15;
+  return makeRoll(x0, speed, angleFor(x0, speed, spin, target + miss), spin);
+}
+function hostTick() {
+  let g = game();
+  if (!g) g = newGame(1);
+  g = fixSeats(g);
+  const t = Date.now();
+  if (g.phase === "done") { if (t > g.endsAt) newGame(g.id + 1); return; }
+  if (g.roll) { if (t > g.roll.at + g.roll.dur * 1000 + CONFIG.settleMs) finishRoll(g); return; }
+  const k = currentSeat(g); if (k < 0) return;
+  const seat = g.seats[k], turnKey = `${g.id}:${g.rollN}`;
+  if (seat.bot || t > g.turnAt + CONFIG.turnMs) { // bots, and players who've been away too long
+    if (host.botTurn !== turnKey) { host.botTurn = turnKey; host.botAt = t + (seat.bot ? CONFIG.botThinkMs : 0); host.botRoll = botRoll(g, k); g = writeGame({ ...g, bx: host.botRoll.x }); }
+    if (t > host.botAt) startRoll(g, k, host.botRoll);
+  }
+}
+/** A "roll" intent (or the host's own roll): only from the seat whose turn it is, for this exact roll number. */
+function hostRoll(from, m) {
+  const g = game();
+  if (!g || g.phase !== "play" || g.roll || !m || m.g !== g.id || m.n !== g.rollN) return;
+  const k = currentSeat(g);
+  if (k < 0 || g.seats[k].id !== from) return;
+  startRoll(g, k, m);
+}
+
+// ── MY TURN ─────────────────────────────────────────────────────────────────────────
+const myName = (() => { try { return localStorage.getItem("mpa-name") || ""; } catch { return ""; } })() ||
+  ["Cosmic", "Lucky", "Neon", "Disco", "Smooth", "Groovy"][Math.floor(Math.random() * 6)] + " " + ["Bowler", "Roller", "Pinhead", "Hooker", "Striker"][Math.floor(Math.random() * 5)];
+let myColor = COLORS[0]; // picked on join: the first color nobody in the room has
+const me = { x: 0, sent: "", lastSend: 0, pending: null, rolls: 0, submitted: -1, toastFor: "" };
+let swipe = null; // the gesture in progress: { id, sx, sy, x0, mode: "line" | "swipe", pts }
+const mySeat = (g) => (g ? g.seats.findIndex((s) => s.id === net.sessionId) : -1);
+const myTurn = (g) => g && g.phase === "play" && !g.roll && !me.pending && currentSeat(g) === mySeat(g) && mySeat(g) >= 0;
+/** Tell the others where I'm lining up (about 10 times a second while it changes). */
+function publishLine(g) {
+  const now = performance.now(), v = JSON.stringify({ k: g.rollN, x: +me.x.toFixed(3) });
+  if (v === me.sent || now - me.lastSend < 100) return;
+  me.sent = v; me.lastSend = now; net.me.set("l", v);
+}
+/** Turn a finished swipe into a roll: its angle aims, its speed sets the ball speed, its curve spins it. */
+function swipeToRoll(pts) {
+  const H = innerHeight, a = pts[0], z = pts[pts.length - 1], cx = z.x - a.x, cy = z.y - a.y, len = Math.hypot(cx, cy);
+  if (cy > -0.06 * H || len < 0.08 * H) return null; // too short, or not up the lane
+  const tail = pts.filter((p) => z.t - p.t < 180), t0 = tail.length > 1 ? tail[0] : pts[Math.max(0, pts.length - 2)], fast = (Math.hypot(z.x - t0.x, z.y - t0.y) / H) / Math.max(0.03, (z.t - t0.t) / 1000);
+  const k = clamp((fast - CONFIG.swipeSlow) / (CONFIG.swipeFast - CONFIG.swipeSlow), 0, 1), speed = CONFIG.speedMin + k * (CONFIG.speedMax - CONFIG.speedMin);
+  const angle = clamp(Math.atan2(cx, -cy) * CONFIG.aimScale, -CONFIG.aimMax, CONFIG.aimMax);
+  let bow = 0; // the farthest the swipe strays from a straight line: + bowed to the right
+  for (const p of pts) { const d = ((p.x - a.x) * -cy + (p.y - a.y) * cx) / len; if (Math.abs(d) > Math.abs(bow)) bow = d; }
+  return makeRoll(me.x, speed, angle, clamp((-bow / len) * CONFIG.spinFromBow, -1, 1));
+}
+function roll(r) {
+  const g = game();
+  if (!myTurn(g)) return;
+  me.rolls++;
+  if (isHost()) { startRoll(g, currentSeat(g), r); return; }
+  me.pending = { ...r, at: performance.now() };
+  startReplay({ ...r, s: mySeat(g) }, g.pins, true); // start rolling now; the host's copy will match it
+  net.send("roll", { g: g.id, n: g.rollN, ...r });
+}
+
+// ── HUD & RESULTS ───────────────────────────────────────────────────────────────────
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[c]);
+let toastTimer = 0;
+function toast(text, ms = 1600, small = false) { const m = $("msg"); m.textContent = text; m.classList.toggle("small", small); m.classList.add("on"); clearTimeout(toastTimer); toastTimer = setTimeout(() => m.classList.remove("on"), ms); }
+let board = null, boardFor = -1;
+/** Colors other players and the bots already use. */
+const takenColors = () => new Set([...Object.entries(S.entities.players || {}).filter(([id]) => id !== net.sessionId).map(([, p]) => p.c), ...((parse(S.shared.game, {}) || {}).seats || []).filter((s) => s.bot).map((s) => s.c)]);
+/** Two players with one color (both joined at once): the later sessionId picks again. */
+function fixColor() {
+  if (!Object.entries(S.entities.players || {}).some(([id, p]) => id < net.sessionId && p.c === myColor)) return;
+  const taken = takenColors();
+  myColor = COLORS.find((c) => !taken.has(c)) || myColor;
+  net.me.set("c", myColor);
+}
+/** The score sheet: one row per bowler, ten frames and a total. */
+function sheetHtml(g, cur) {
+  return `<table>${g.seats.map((s, k) => {
+    const sh = scoreSheet(s.r), nb = nextBall(s.r), name = s.id === net.sessionId ? "You" : s.n, col = s.bot ? s.c : playerColor(s.id);
+    return `<tr class="${k === cur ? "up" : ""} ${s.id === net.sessionId ? "me" : ""}"><td class="nm"><i style="background:${esc(col)}"></i>${esc(name)}</td>` +
+      sh.frames.map((f, i) => `<td class="${k === cur && nb.frame === i ? "now" : ""}"><b>${f.marks}</b>${f.total ?? ""}</td>`).join("") + `<td class="tot">${sh.total}</td></tr>`;
+  }).join("")}</table>`;
+}
+let sheetKey = "";
+function hud(g) {
+  fixColor();
+  if (ATTRACT) { for (const id of ["sheet", "turn", "pins", "net", "hint"]) $(id).textContent = ""; $("over").hidden = true; return; }
+  const cur = currentSeat(g), seat = g.seats[cur], key = `${g.v}|${cur}|${myColor}`;
+  if (key !== sheetKey) { sheetKey = key; $("sheet").innerHTML = sheetHtml(g, cur); document.documentElement.style.setProperty("--sheet", `${$("sheet").offsetHeight + 8}px`); }
+  const mine = seat && seat.id === net.sessionId, nb = seat ? nextBall(seat.r) : null;
+  const left = Math.ceil((g.turnAt + CONFIG.turnMs - Date.now()) / 1000);
+  $("turn").className = "hud" + (mine && !g.roll ? " mine" : "");
+  const watching = mySeat(g) < 0 ? " · you're watching: you bowl next game" : "";
+  $("turn").innerHTML = g.phase !== "play" || !seat ? "" : `${mine ? "Your turn" : `${esc(seat.n)} is up`}<small>Frame ${nb.frame + 1} · Ball ${nb.ball + 1}${mine && !g.roll && left <= 10 ? ` · rolling for you in ${Math.max(0, left)}s` : ""}${watching}</small>`;
+  const shown = replay ? replay.sim.pins.map((p) => p.up && !p.down) : PIN_SPOTS.map((_, i) => (view.mask >> i) & 1);
+  $("pins").innerHTML = [[6, 7, 8, 9], [3, 4, 5], [1, 2], [0]].map((row) => `<div>${row.map((i) => `<span class="${shown[i] ? "" : "down"}"></span>`).join("")}</div>`).join("");
+  $("hint").textContent = mine && !g.roll && me.rolls < 2 ? (innerWidth < 600 ? "Drag sideways to line up. Swipe up to roll; curve it to hook." : "Drag sideways to line up, then swipe up the lane. Curve your swipe to hook the ball.") : "";
+  const n = livePlayers().length;
+  $("net").textContent = net.offline ? "Offline: playing with bots" : `Online · ${n} player${n === 1 ? "" : "s"}${isHost() ? " · you run the lane" : ""}`;
+  $("over").hidden = g.phase !== "done";
+  if (g.phase === "done") showResults(g);
+}
+function showResults(g) {
+  const rows = g.seats.map((s, k) => ({ k, s, tot: scoreSheet(s.r).total })).sort((a, b) => b.tot - a.tot), top = rows[0];
+  const tie = rows.length > 1 && rows[1].tot === top.tot;
+  $("overTitle").textContent = tie ? `Tie at ${top.tot}!` : top.s.id === net.sessionId ? `You win with ${top.tot}!` : `${top.s.n} wins with ${top.tot}!`;
+  if ($("final").dataset.v !== String(g.v)) { $("final").dataset.v = String(g.v); $("final").innerHTML = sheetHtml(g, -1); }
+  $("next").textContent = `New game in ${Math.max(0, Math.ceil((g.endsAt - Date.now()) / 1000))}s`;
+  if (boardFor !== g.id) { boardFor = g.id; showBoard(g); }
+}
+function showBoard(g) {
+  const list = $("board"), mine = g.seats.find((s) => s.id === net.sessionId);
+  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  const submit = mine && me.submitted !== g.id ? board.submit(scoreSheet(mine.r).total).catch(() => null) : Promise.resolve();
+  me.submitted = g.id;
+  list.innerHTML = "<li>Loading…</li>";
+  submit.then(() => board.top(10)).then(({ entries }) => {
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score}</span></li>`).join("") : "<li>No games yet. Be the first.</li>";
+  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+}
+$("again").onclick = () => { const g = game(); if (!g || g.phase !== "done") return; if (isHost()) newGame(g.id + 1); else net.send("again", {}); };
+/** What a finished roll was: STRIKE!, SPARE!, a split, a gutter ball, or the count. */
+function callRoll(rp) {
+  const s = rp.sim, before = popcount(rp.mask), down = popcount(downMask(s)), left = rp.mask & ~downMask(s);
+  if (down === before && before === 10) return ["STRIKE!", false];
+  if (down === before) return ["SPARE!", false];
+  if (s.gutterAt >= 0 && down === 0) return ["Gutter ball", true];
+  const split = before === 10 && !(left & 1) && popcount(left) >= 2 && isSplit(left);
+  return [split ? `Split! ${down}` : down === 0 ? "Missed!" : `${down} pin${down === 1 ? "" : "s"}`, true];
+}
+/** A split: the head pin is down and the pins left stand in groups with a gap between them. */
+function isSplit(left) {
+  const xs = PIN_SPOTS.map((p, i) => ((left >> i) & 1 ? Math.round(p.x / (CONFIG.pinSpacing / 2)) : null)).filter((v) => v !== null).sort((a, b) => a - b);
+  for (let k = 1; k < xs.length; k++) if (xs[k] - xs[k - 1] > 2) return true;
+  return false;
+}
+
+// ── INPUT / LOOP ────────────────────────────────────────────────────────────────────
+cv.addEventListener("pointerdown", (e) => {
+  e.preventDefault();
+  if (!actx) { try { actx = new (window.AudioContext || window.webkitAudioContext)(); } catch {} }
+  if (ATTRACT || swipe || !myTurn(game())) return;
+  cv.setPointerCapture(e.pointerId);
+  swipe = { id: e.pointerId, sx: e.clientX, sy: e.clientY, x0: me.x, mode: "", pts: [] };
+});
+cv.addEventListener("pointermove", (e) => {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const dx = e.clientX - swipe.sx, dy = e.clientY - swipe.sy;
+  if (swipe.mode !== "swipe" && dy < -24) { swipe.mode = "swipe"; swipe.pts = [{ x: e.clientX, y: e.clientY - 1, t: performance.now() - 16 }]; } // going up the lane: a swipe
+  else if (!swipe.mode && Math.abs(dx) > 8) swipe.mode = "line";
+  if (swipe.mode === "line") me.x = clamp(swipe.x0 + (dx / Math.min(innerWidth, 900)) * 1.3, -(CONFIG.laneHalf - CONFIG.ballR), CONFIG.laneHalf - CONFIG.ballR);
+  if (swipe.mode === "swipe") swipe.pts.push({ x: e.clientX, y: e.clientY, t: performance.now() });
+});
+cv.addEventListener("pointerup", (e) => {
+  if (!swipe || e.pointerId !== swipe.id) return;
+  const s = swipe; swipe = null;
+  if (s.mode === "swipe" && s.pts.length > 2) { const r = swipeToRoll(s.pts); if (r) roll(r); }
+});
+cv.addEventListener("pointercancel", () => { swipe = null; });
+addEventListener("keydown", (e) => { // arrow keys line up too
+  if (!myTurn(game())) return;
+  const half = CONFIG.laneHalf - CONFIG.ballR;
+  if (e.key === "ArrowLeft") me.x = clamp(me.x - 0.03, -half, half);
+  if (e.key === "ArrowRight") me.x = clamp(me.x + 0.03, -half, half);
+});
+document.addEventListener("touchmove", (e) => e.preventDefault(), { passive: false });
+
+// The camera: behind the ball while lining up, riding along with it, then watching the pins.
+const cam = { pos: new THREE.Vector3(0, 1.25, 4.2), look: new THREE.Vector3(0, 0, -11) };
+const wantPos = new THREE.Vector3(), wantLook = new THREE.Vector3();
+function fit() { renderer.setSize(innerWidth, innerHeight); camera.aspect = innerWidth / innerHeight; camera.fov = camera.aspect < 1 ? 62 : 42; camera.updateProjectionMatrix(); }
+addEventListener("resize", fit); addEventListener("orientationchange", fit); fit();
+
+let last = performance.now(), lastHb = 0, lastHud = 0, waitX = 0, gameId = -1;
+function frame(now) {
+  const dt = Math.max(0, Math.min(0.05, (now - last) / 1000)); last = now; // the first frame can be timed before load: never negative
+  if (now - lastHb > 1000) { lastHb = now; net.me.set("hb", Date.now()); }
+  if (isHost()) hostTick();
+  const g = game();
+  if (g) {
+    if (g.id !== gameId) { gameId = g.id; replay = null; me.pending = null; swipe = null; setRack(ALL_PINS); view.drop = 0; me.x = 0; $("over").hidden = true; }
+    // a roll in state that I'm not showing yet: show it (or adopt it, if it's my own that I already started)
+    if (g.roll && (!replay || replay.n !== g.roll.n)) {
+      const r = g.roll, pend = me.pending;
+      if (replay && replay.n === null && pend && pend.x === r.x && pend.vx === r.vx && pend.vz === r.vz && pend.sp === r.sp) replay.n = r.n;
+      else startReplay(r, r.pm, false);
+      me.pending = null;
+    }
+    if (me.pending && now - me.pending.at > 2500) { me.pending = null; if (replay && replay.n === null) replay = null; } // the host didn't take it
+    if (replay) {
+      const s = replay.sim, hitsBefore = s.hits;
+      if (ATTRACT && !replay.slowAt && s.ball.z < -16.8) replay.slowAt = s.t; // the preview shows the crash in slow motion
+      simRun(s, replay.slowAt && s.t < replay.slowAt + 0.8 ? dt * 0.4 : dt);
+      if (s.hits > hitsBefore) { crash(s.hits - hitsBefore); if (!replay.burst) { replay.burst = true; burst(s.ball.x, 0.2, s.ball.z, 26, ["#ffffff", "#ff4fd8", "#4de1ff", "#ffd84d"]); } }
+      if (s.settled && !replay.toastDone) { replay.toastDone = true; replay.settledAt = now; const [text, small] = callRoll(replay); if (!ATTRACT || !small) toast(text, 1500, small); if (!small) { burst(0, 0.3, CONFIG.headZ - 0.3, 50, ["#ff4fd8", "#4de1ff", "#ffd84d", "#ffffff"]); beep(660, 0.3, "square", 0.06, 1.5); } }
+      if (s.settled && now - replay.settledAt > 900 && (!g.roll || g.roll.n !== replay.n) && replay.n !== null) { replay = null; setRack(g.pins); } // show the result a moment, then sweep
+    } else setRack(g.pins);
+    if (!g.roll && !replay) { // the ball waits at the foul line where the bowler lines it up
+      const cur = currentSeat(g), seat = g.seats[cur];
+      if (seat) {
+        if (seat.id === net.sessionId) { waitX = me.x; publishLine(g); }
+        else if (seat.bot) waitX += (g.bx - waitX) * Math.min(1, dt * 3);
+        else { const l = parse(S.entities.players[seat.id]?.l, null); if (l && l.k === g.rollN) waitX += (l.x - waitX) * Math.min(1, dt * 8); }
+        ball.material = ballMat(seat.bot ? seat.c : playerColor(seat.id));
+      }
+      ball.position.set(waitX, CONFIG.ballR, 0.3); ball.visible = !!seat;
+      aimLine.visible = !!seat && seat.id === net.sessionId; aimLine.position.x = waitX;
+    } else aimLine.visible = false;
+    if (replay) { // the ball rolls (and spins) along its path
+      const b = replay.sim.ball, sp = Math.hypot(b.vx, b.vz);
+      ball.visible = !b.gone || b.z > CONFIG.pitZ - 0.5;
+      if (sp > 0.01) { axis.set(b.vz / sp, 0, -b.vx / sp); ball.rotateOnWorldAxis(axis, (sp * dt) / CONFIG.ballR); }
+      ball.position.set(b.x, b.gutter ? CONFIG.ballR - 0.07 : CONFIG.ballR, b.z);
+      setRumble(b.gone ? 0 : 1);
+    } else setRumble(0);
+    drawPins(dt);
+    // the camera
+    const b = replay && replay.sim.ball;
+    if (b && b.z < 0) { wantPos.set(b.x * 0.5, b.z < -9 ? 0.62 : 1.0, Math.max(b.z + 2.8, -15.5)); wantLook.set(b.x * 0.3, 0.1, Math.min(b.z - 6, CONFIG.headZ - 0.4)); }
+    else if (camera.aspect < 1) { wantPos.set(waitX * 0.6, 1.5, 3.0); wantLook.set(waitX * 0.25, -2.4, -11); } // tall screens: tilt down so the lane fills them
+    else { wantPos.set(waitX * 0.6, 1.25, 4.2); wantLook.set(waitX * 0.25, 0, -11); }
+    if (now - lastHud > 120) { lastHud = now; hud(g); }
+  }
+  tickSparks(dt);
+  const k = 1 - Math.pow(0.02, dt);
+  cam.pos.lerp(wantPos, k); cam.look.lerp(wantLook, k);
+  camera.position.copy(cam.pos); camera.lookAt(cam.look);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+
+(async function start() {
+  net = await connect();
+  net.onState((st) => { S = st; });
+  net.on("roll", (m, from) => { if (isHost()) hostRoll(from, m); });
+  net.on("again", () => { const g = game(); if (isHost() && g && g.phase === "done") newGame(g.id + 1); });
+  net.onDisconnect(() => { $("net").textContent = "Reconnecting…"; });
+  if (!net.offline && typeof MP !== "undefined") board = MP.auth({ key: MP_CONNECT.key, apiUrl: MP_CONNECT.apiUrl }).leaderboard(CONFIG.board);
+  const taken = takenColors();
+  myColor = COLORS.find((c) => !taken.has(c)) || COLORS[Math.floor(Math.random() * COLORS.length)];
+  net.me.set({ n: myName, c: myColor, hb: Date.now() });
+  if (ATTRACT) Object.assign(CONFIG, { seats: 4, botThinkMs: 400, settleMs: 2000, botAimErr: 0.015 });
+  wantPos.copy(cam.pos); wantLook.copy(cam.look);
+  requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
