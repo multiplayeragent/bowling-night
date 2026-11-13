@@ -522,7 +522,8 @@ function drawPins(dt) {
       axis.set(p.fz, 0, -p.fx).normalize(); if (!p.down || axis.lengthSq() < 0.5) axis.set(1, 0, 0);
       q0.setFromAxisAngle(axis, tip); q1.setFromAxisAngle(UP, p.down ? (i * 1.7 + s.t * (2 + (i % 3))) * p.fall : 0);
       m.quaternion.copy(q1).multiply(q0);
-      m.position.set(p.x, Math.sin(tip) * 0.05 - p.pit * p.pit * 4, p.z);
+      const inGutter = p.down && Math.abs(p.x) > CONFIG.laneHalf ? 0.07 : 0; // a pin knocked into the gutter lies down in it, not over it
+      m.position.set(p.x, Math.sin(tip) * 0.05 - inGutter - p.pit * p.pit * 4, p.z);
     } else {
       const up = (view.mask >> i) & 1;
       m.visible = !!up; m.quaternion.identity();
@@ -759,6 +760,7 @@ cv.addEventListener("pointerup", (e) => {
   if (s.mode === "swipe" && s.pts.length > 2) { const r = swipeToRoll(s.pts); if (r) roll(r); }
 });
 cv.addEventListener("pointercancel", () => { swipe = null; });
+cv.addEventListener("contextmenu", (e) => e.preventDefault()); // a right-click drag shouldn't open the menu
 addEventListener("keydown", (e) => { // arrow keys line up too
   if (!myTurn(game())) return;
   const half = CONFIG.laneHalf - CONFIG.ballR;
@@ -815,7 +817,7 @@ function frame(now) {
       const b = replay.sim.ball, sp = Math.hypot(b.vx, b.vz);
       ball.visible = !b.gone || b.z > CONFIG.pitZ - 0.5;
       if (sp > 0.01) { axis.set(b.vz / sp, 0, -b.vx / sp); ball.rotateOnWorldAxis(axis, (sp * dt) / CONFIG.ballR); }
-      ball.position.set(b.x, b.gutter ? CONFIG.ballR - 0.07 : CONFIG.ballR, b.z);
+      ball.position.set(b.x, b.z <= CONFIG.pitZ ? CONFIG.ballR - 0.2 : b.gutter ? CONFIG.ballR - 0.07 : CONFIG.ballR, b.z); // past the lane's end it drops into the pit
       setRumble(b.gone ? 0 : 1);
     } else setRumble(0);
     drawPins(dt);
