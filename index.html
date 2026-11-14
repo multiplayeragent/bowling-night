@@ -38,6 +38,7 @@
   .card table { font-size: clamp(10px, 2.6vw, 13px); }
   .card tr.me td.nm { color: #ffd84d; }
   .card ol { margin: 0; padding-left: 24px; font-size: 14px; } .card li span { float: right; }
+  .card li.note { list-style: none; margin-left: -24px; } /* a status line, not a numbered entry */
   .card p { margin: 12px 0 0; font-size: 13px; opacity: .8; }
   button.go { width: 100%; min-height: 48px; margin-top: 14px; border: 0; border-radius: 12px; background: #ff4fd8; color: #2a0030; font: 800 17px system-ui, sans-serif; cursor: pointer; }
 </style>
@@ -54,7 +55,7 @@
 <div id="over" hidden><div class="card">
   <h2 id="overTitle">Final scores</h2>
   <div id="final"></div>
-  <h3>Highest games</h3><ol id="board"><li>Loading…</li></ol>
+  <h3>Highest games</h3><ol id="board"><li class="note">Loading…</li></ol>
   <p id="next"></p>
   <button class="go" id="again">Play again</button>
 </div></div>
@@ -713,13 +714,13 @@ function showResults(g) {
 }
 function showBoard(g) {
   const list = $("board"), mine = g.seats.find((s) => s.id === net.sessionId);
-  if (!board) { list.innerHTML = "<li>Leaderboards need a connection.</li>"; return; }
+  if (!board) { list.innerHTML = "<li class='note'>Leaderboards need a connection.</li>"; return; }
   const submit = mine && me.submitted !== g.id ? board.submit(scoreSheet(mine.r).total).catch(() => null) : Promise.resolve();
   me.submitted = g.id;
-  list.innerHTML = "<li>Loading…</li>";
+  list.innerHTML = "<li class='note'>Loading…</li>";
   submit.then(() => board.top(10)).then(({ entries }) => {
-    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score}</span></li>`).join("") : "<li>No games yet. Be the first.</li>";
-  }).catch(() => { list.innerHTML = "<li>Couldn't load the leaderboard.</li>"; });
+    list.innerHTML = entries.length ? entries.map((e) => `<li>${esc(e.username || "Player")}<span>${e.score}</span></li>`).join("") : "<li class='note'>No games yet. Be the first.</li>";
+  }).catch(() => { list.innerHTML = "<li class='note'>Couldn't load the leaderboard.</li>"; });
 }
 $("again").onclick = () => { const g = game(); if (!g || g.phase !== "done") return; if (isHost()) newGame(g.id + 1); else net.send("again", {}); };
 /** What a finished roll was: STRIKE!, SPARE!, a split, a gutter ball, or the count. */
